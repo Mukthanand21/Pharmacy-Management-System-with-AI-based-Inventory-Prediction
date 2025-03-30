@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmacy Management - Add User</title>
+    <script>
+        async function addUser() {
+            let name = document.getElementById("name").value;
+            let email = document.getElementById("email").value;
+
+            let response = await fetch('/add_user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, email: email })
+            });
+
+            let result = await response.json();
+            alert(result.message);
+        }
+    </script>
+</head>
+<body>
+    <h2>Add User to Database</h2>
+    <form onsubmit="event.preventDefault(); addUser();">
+        <label>Name:</label>
+        <input type="text" id="name" required><br><br>
+
+        <label>Email:</label>
+        <input type="email" id="email" required><br><br>
+
+        <button type="submit">Add User</button>
+    </form>
+
+    <h2>All Users</h2>
+    <button onclick="fetchUsers()">Load Users</button>
+    <ul id="usersList"></ul>
+
+    <script>
+        async function fetchUsers() {
+            let response = await fetch('/users');
+            let users = await response.json();
+
+            let userList = document.getElementById("usersList");
+            userList.innerHTML = "";
+            users.forEach(user => {
+                let li = document.createElement("li");
+                li.innerText = `${user.name} (${user.email})`;
+                userList.appendChild(li);
+            });
+        }
+    </script>
+</body>
+</html>
