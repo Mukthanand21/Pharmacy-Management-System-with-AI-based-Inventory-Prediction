@@ -1,13 +1,13 @@
-import { Link } from "react-router-dom";
-
-function Navbar() {
+const Navbar = () => {
   return (
-    <nav className="bg-blue-600 p-4 text-white flex gap-4">
-      <Link to="/" className="font-bold text-lg">Home</Link>
-      <Link to="/inventory" className="font-bold text-lg">Inventory</Link>
-      <Link to="/prediction" className="font-bold text-lg">AI Prediction</Link>
-    </nav>
+    <div className="w-full bg-white shadow-md p-4 flex justify-between items-center">
+      <h1 className="text-xl font-semibold">Dashboard</h1>
+      <div className="flex items-center gap-4">
+        <span className="text-gray-600">Welcome, Admin</span>
+        <img src="/profile.jpg" alt="Profile" className="w-10 h-10 rounded-full" />
+      </div>
+    </div>
   );
-}
+};
 
 export default Navbar;
