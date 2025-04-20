@@ -5,11 +5,11 @@ const Login = ({ setIsAuthenticated }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const navigate = useNavigate(); // ✅ Add useNavigate()
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError(""); // Reset error before new request
+    setError("");
 
     try {
       const response = await fetch("http://127.0.0.1:5000/login", {
@@ -19,15 +19,17 @@ const Login = ({ setIsAuthenticated }) => {
       });
 
       const data = await response.json();
+      console.log("Login response:", data); // ✅ Log response
 
       if (data.success) {
-        setIsAuthenticated(true);  // ✅ Set authentication state
-        localStorage.setItem("token", data.token); // ✅ Store token for future requests
-        navigate("/"); // ✅ Redirect to Dashboard
+        localStorage.setItem("token", "authenticated"); // Dummy flag
+        setIsAuthenticated(true);
+        navigate("/");
       } else {
         setError(data.message || "Invalid Credentials");
       }
     } catch (err) {
+      console.error("Login Error:", err);
       setError("Server Error! Please try again.");
     }
   };

@@ -1,31 +1,74 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import axios from "axios";
 
 const MedicineTypes = () => {
-  const [types, setTypes] = useState([
-    { id: 1, name: "Tablet" },
-    { id: 2, name: "Capsule" },
-    { id: 3, name: "Syrup" },
-    { id: 4, name: "Injection" },
-  ]);
-
+  const [types, setTypes] = useState([]);
   const [newType, setNewType] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [editingId, setEditingId] = useState(null);
 
-  const handleAddType = () => {
-    if (newType.trim() === "") return;
-    setTypes([...types, { id: types.length + 1, name: newType }]);
-    setNewType("");
+  // ✅ Load all types from backend
+  const fetchTypes = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/types");
+      setTypes(res.data);
+    } catch (err) {
+      console.error("Error fetching types:", err);
+    }
   };
 
-  const handleDelete = (id) => {
-    setTypes(types.filter((type) => type.id !== id));
+  useEffect(() => {
+    fetchTypes();
+  }, []);
+
+  // ✅ Add or Update Type
+  const handleSave = async () => {
+    if (!newType.trim()) return;
+
+    try {
+      if (editingId) {
+        // Update
+        await axios.put(`http://localhost:5000/types/${editingId}`, {
+          name: newType,
+        });
+      } else {
+        // Add
+        await axios.post("http://localhost:5000/types", {
+          name: newType,
+        });
+      }
+
+      setNewType("");
+      setEditingId(null);
+      fetchTypes();
+    } catch (err) {
+      console.error("Error saving type:", err);
+    }
+  };
+
+  // ✅ Start editing
+  const handleEdit = (type) => {
+    setNewType(type.name);
+    setEditingId(type.id);
+  };
+
+  // ✅ Delete a type
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(`http://localhost:5000/types/${id}`);
+      fetchTypes();
+    } catch (err) {
+      console.error("Error deleting type:", err);
+    }
   };
 
   return (
     <div className="grid grid-cols-3 gap-6 p-6 bg-white shadow-lg rounded-lg">
       {/* Medicine Type Form */}
       <div className="col-span-1 bg-gray-100 p-4 rounded-lg shadow">
-        <h2 className="text-lg font-bold mb-4">Medicine Type Form</h2>
+        <h2 className="text-lg font-bold mb-4">
+          {editingId ? "Edit" : "Add"} Medicine Type
+        </h2>
         <label className="block mb-2">Type</label>
         <input
           type="text"
@@ -36,13 +79,16 @@ const MedicineTypes = () => {
         />
         <div className="flex justify-between mt-4">
           <button
-            onClick={handleAddType}
+            onClick={handleSave}
             className="bg-blue-600 text-white px-4 py-2 rounded"
           >
-            Save
+            {editingId ? "Update" : "Save"}
           </button>
           <button
-            onClick={() => setNewType("")}
+            onClick={() => {
+              setNewType("");
+              setEditingId(null);
+            }}
             className="bg-gray-500 text-white px-4 py-2 rounded"
           >
             Cancel
@@ -80,7 +126,10 @@ const MedicineTypes = () => {
                   <td className="border p-2">{index + 1}</td>
                   <td className="border p-2">{type.name}</td>
                   <td className="border p-2">
-                    <button className="bg-green-500 text-white px-3 py-1 rounded mr-2">
+                    <button
+                      onClick={() => handleEdit(type)}
+                      className="bg-green-500 text-white px-3 py-1 rounded mr-2"
+                    >
                       Edit
                     </button>
                     <button
@@ -95,7 +144,7 @@ const MedicineTypes = () => {
           </tbody>
         </table>
 
-        {/* Pagination */}
+        {/* Pagination (Optional Placeholder) */}
         <div className="flex justify-between mt-4">
           <button className="bg-gray-500 text-white px-4 py-2 rounded">
             Previous

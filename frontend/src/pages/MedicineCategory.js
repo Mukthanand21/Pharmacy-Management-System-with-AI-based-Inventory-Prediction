@@ -1,31 +1,72 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import axios from "axios";
 
 const MedicineCategory = () => {
   const [category, setCategory] = useState("");
-  const [categories, setCategories] = useState([
-    { id: 1, name: "Antibiotics" },
-    { id: 2, name: "Painkillers" },
-  ]);
+  const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState(null);
 
-  // Add New Category
-  const handleSave = () => {
-    if (category.trim()) {
-      setCategories([...categories, { id: categories.length + 1, name: category }]);
-      setCategory(""); // Clear input
+  // ✅ Load Categories from Backend
+  const fetchCategories = async () => {
+    try {
+      const response = await axios.get("http://localhost:5000/categories");
+      setCategories(response.data);
+    } catch (error) {
+      console.error("Error fetching categories:", error);
     }
   };
 
-  // Delete Category
-  const handleDelete = (id) => {
-    setCategories(categories.filter((cat) => cat.id !== id));
+  useEffect(() => {
+    fetchCategories();
+  }, []);
+
+  // ✅ Add or Update Category
+  const handleSave = async () => {
+    if (!category.trim()) return;
+
+    try {
+      if (editingId) {
+        // Update existing category
+        await axios.put(`http://localhost:5000/categories/${editingId}`, {
+          name: category,
+        });
+      } else {
+        // Add new category
+        await axios.post("http://localhost:5000/categories", { name: category });
+      }
+
+      setCategory("");
+      setEditingId(null);
+      fetchCategories(); // Refresh list
+    } catch (error) {
+      console.error("Error saving category:", error);
+    }
+  };
+
+  // ✅ Edit Category
+  const handleEdit = (cat) => {
+    setCategory(cat.name);
+    setEditingId(cat.id);
+  };
+
+  // ✅ Delete Category
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(`http://localhost:5000/categories/${id}`);
+      fetchCategories();
+    } catch (error) {
+      console.error("Error deleting category:", error);
+    }
   };
 
   return (
     <div className="p-6 bg-white shadow rounded-lg flex gap-6">
       {/* Left: Category Form */}
       <div className="w-1/3 bg-gray-100 p-4 rounded-lg">
-        <h2 className="text-lg font-bold mb-4">Add Medicine Category</h2>
+        <h2 className="text-lg font-bold mb-4">
+          {editingId ? "Edit" : "Add"} Medicine Category
+        </h2>
         <input
           type="text"
           placeholder="Category Name"
@@ -35,9 +76,15 @@ const MedicineCategory = () => {
         />
         <div className="flex gap-2">
           <button onClick={handleSave} className="bg-blue-600 text-white px-4 py-2 rounded">
-            Save
+            {editingId ? "Update" : "Save"}
           </button>
-          <button onClick={() => setCategory("")} className="bg-gray-400 text-white px-4 py-2 rounded">
+          <button
+            onClick={() => {
+              setCategory("");
+              setEditingId(null);
+            }}
+            className="bg-gray-400 text-white px-4 py-2 rounded"
+          >
             Cancel
           </button>
         </div>
@@ -73,8 +120,16 @@ const MedicineCategory = () => {
                   <td className="border p-2">{index + 1}</td>
                   <td className="border p-2">{cat.name}</td>
                   <td className="border p-2">
-                    <button className="bg-green-500 text-white px-3 py-1 rounded mr-2">Edit</button>
-                    <button onClick={() => handleDelete(cat.id)} className="bg-red-500 text-white px-3 py-1 rounded">
+                    <button
+                      onClick={() => handleEdit(cat)}
+                      className="bg-green-500 text-white px-3 py-1 rounded mr-2"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(cat.id)}
+                      className="bg-red-500 text-white px-3 py-1 rounded"
+                    >
                       Delete
                     </button>
                   </td>
@@ -83,7 +138,7 @@ const MedicineCategory = () => {
           </tbody>
         </table>
 
-        {/* Pagination (Placeholder) */}
+        {/* Pagination (Optional Placeholder) */}
         <div className="flex justify-between mt-4">
           <button className="bg-gray-500 text-white px-4 py-2 rounded">Previous</button>
           <button className="bg-gray-500 text-white px-4 py-2 rounded">Next</button>
