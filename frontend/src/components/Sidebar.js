@@ -10,8 +10,9 @@ const Sidebar = () => {
   const [isOpen, setIsOpen] = useState(true);
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     navigate("/login");
+    window.location.reload(); // 🔁 Force re-render to reset the app
   };
 
   const toggleSidebar = () => setIsOpen(prev => !prev);

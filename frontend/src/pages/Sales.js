@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { FaPlus, FaEdit, FaTrash } from "react-icons/fa";
+import { FaPlus } from "react-icons/fa";
 import NewSaleModal from "./NewSaleModal"; // we'll create this next
 
 const Sales = () => {
@@ -58,8 +58,8 @@ const Sales = () => {
               <th className="p-3 border">Date</th>
               <th className="p-3 border">Reference</th>
               <th className="p-3 border">Customer</th>
+              <th className="p-3 border">Medicines</th>
               <th className="p-3 border">Total</th>
-              <th className="p-3 border">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -70,15 +70,12 @@ const Sales = () => {
                   <td className="p-2 border">{sale.date}</td>
                   <td className="p-2 border">{sale.reference}</td>
                   <td className="p-2 border">{sale.customer}</td>
-                  <td className="p-2 border">₹{sale.total_amount}</td>
-                  <td className="p-2 border flex justify-center gap-2">
-                    <button className="text-blue-500 hover:text-blue-700">
-                      <FaEdit />
-                    </button>
-                    <button className="text-red-500 hover:text-red-700">
-                      <FaTrash />
-                    </button>
+                  <td className="p-2 border">
+                    {sale.medicines && sale.medicines.length > 0
+                      ? sale.medicines.join(", ")
+                      : "N/A"}
                   </td>
+                  <td className="p-2 border">₹{sale.total_amount}</td>
                 </tr>
               ))
             ) : (

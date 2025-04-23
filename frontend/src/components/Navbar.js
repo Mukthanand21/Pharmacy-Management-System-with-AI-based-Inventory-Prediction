@@ -1,54 +1,63 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FaBars, FaTimes } from "react-icons/fa";
+import About from "./About";
 
 const Navbar = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const navigate = useNavigate();
 
-  const toggleMenu = () => setIsOpen(!isOpen);
-
   const handleLogout = () => {
-    localStorage.removeItem("token"); // Clear token or user data
-    navigate("/login"); // Redirect to login page
+    localStorage.removeItem("user");
+    navigate("/login");
+    window.location.reload();
   };
 
   return (
-    <nav className="bg-blue-900 text-white px-6 py-4 flex justify-between items-center">
-      <Link to="/" className="text-xl font-bold">PMS AI Inventory Predictor</Link>
+    <>
+      <nav className="bg-white shadow-md px-6 py-4 flex justify-between items-center sticky top-0 z-50">
+        {/* Logo / Brand */}
+        <div className="text-2xl font-extrabold text-blue-700 tracking-wide flex items-center gap-2">
+          <img src="/pharmacy-icon.png" alt="PharmaPro" className="h-8 w-8" />
+          PMS-AI
+        </div>
 
-      {/* Desktop Links */}
-      <ul className="hidden md:flex space-x-6 items-center">
-        <li><Link to="/" className="hover:text-gray-300">Home</Link></li>
-        <li><Link to="/about" className="hover:text-gray-300">About</Link></li>
-        <li>
-          <button 
-            onClick={handleLogout} 
-            className="hover:text-red-400 transition-colors"
-          >
-            Logout
-          </button>
-        </li>
-      </ul>
-
-      {/* Mobile Toggle */}
-      <button className="md:hidden" onClick={toggleMenu}>
-        {isOpen ? <FaTimes /> : <FaBars />}
-      </button>
-
-      {/* Mobile Menu */}
-      {isOpen && (
-        <ul className="absolute top-16 left-0 w-full bg-blue-800 flex flex-col items-center space-y-4 py-4 md:hidden">
-          <li><Link to="/" onClick={toggleMenu}>Home</Link></li>
-          <li><Link to="/about" onClick={toggleMenu}>About</Link></li>
+        {/* Navigation Links */}
+        <ul className="flex gap-6 items-center text-gray-700 font-medium">
           <li>
-            <button onClick={() => { toggleMenu(); handleLogout(); }} className="text-red-300 hover:text-red-500">
-              Logout
-            </button>
+            <Link to="/dashboard" className="hover:text-blue-600 transition">
+              Dashboard
+            </Link>
+          </li>
+          <li>
+            <Link to="/inventory" className="hover:text-blue-600 transition">
+              Inventory
+            </Link>
+          </li>
+          <li>
+            <Link to="/sales" className="hover:text-blue-600 transition">
+              Sales
+            </Link>
+          </li>
+          <li
+            className="hover:text-blue-600 cursor-pointer transition"
+            onClick={() => setShowAbout(true)}
+          >
+            About
           </li>
         </ul>
-      )}
-    </nav>
+
+        {/* Logout Button */}
+        <button
+          onClick={handleLogout}
+          className="ml-4 bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded shadow-sm transition"
+        >
+          Logout
+        </button>
+      </nav>
+
+      {/* About Modal */}
+      {showAbout && <About onClose={() => setShowAbout(false)} />}
+    </>
   );
 };
 

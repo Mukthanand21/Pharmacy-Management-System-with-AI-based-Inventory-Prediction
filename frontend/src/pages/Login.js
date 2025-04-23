@@ -1,68 +1,87 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
-const Login = ({ setIsAuthenticated }) => {
+const Login = ({ setUser }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError("");
-
     try {
-      const response = await fetch("http://127.0.0.1:5000/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const res = await axios.post("http://localhost:5000/api/login", {
+        email,
+        password,
       });
 
-      const data = await response.json();
-      console.log("Login response:", data); // ✅ Log response
+      if (res.data && res.data.user) {
+        localStorage.setItem("user", JSON.stringify(res.data.user));
+        setUser(res.data.user);
 
-      if (data.success) {
-        localStorage.setItem("token", "authenticated"); // Dummy flag
-        setIsAuthenticated(true);
-        navigate("/");
+        toast.success("Login successful!", {
+          position: "top-right",
+          autoClose: 1500,
+          onClose: () => navigate("/dashboard"),
+        });
       } else {
-        setError(data.message || "Invalid Credentials");
+        toast.error("Invalid login response.");
       }
     } catch (err) {
-      console.error("Login Error:", err);
-      setError("Server Error! Please try again.");
+      toast.error(err.response?.data?.message || "Login failed.");
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="bg-white p-6 rounded-lg shadow-md w-96">
-        <h2 className="text-2xl font-bold mb-4 text-center">Login</h2>
-        {error && <p className="text-red-500 text-center">{error}</p>}
-        <form onSubmit={handleLogin}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-2 border rounded mb-3"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-2 border rounded mb-3"
-            required
-          />
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-100 via-blue-200 to-blue-300">
+      <ToastContainer />
+      <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm transform transition-all duration-300 hover:scale-[1.02]">
+        <div className="flex flex-col items-center mb-6">
+          <img src="/pharmacy-icon.png" alt="Pharmacy" className="w-16 h-16 mb-2" />
+          <h2 className="text-3xl font-extrabold text-blue-700">Welcome Back</h2>
+          <p className="text-gray-500 text-sm">Please login to continue</p>
+        </div>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Email</label>
+            <input
+              type="email"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="you@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Password</label>
+            <input
+              type="password"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              placeholder="••••••••"
+            />
+          </div>
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-semibold transition duration-200"
           >
             Login
           </button>
         </form>
+        <div className="text-sm text-center mt-4 text-gray-600">
+          Don’t have an account?{" "}
+          <span
+            className="text-blue-600 cursor-pointer hover:underline font-medium"
+            onClick={() => navigate("/signup")}
+          >
+            Sign up
+          </span>
+        </div>
       </div>
     </div>
   );
