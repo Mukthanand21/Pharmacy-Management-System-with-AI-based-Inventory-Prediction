@@ -80,5 +80,10 @@ It also includes an **AI Sales Predictor** using **Machine Learning (Linear Regr
 
 7. Access the app at: `http://127.0.0.1:5000/`
 
-## 📂 Project Structure
+PROJECT SS(main):
+1.Login SS: ![image](https://github.com/user-attachments/assets/65eff81b-15b6-4b93-93d8-37d024f1cdb5)
+2. Dashboard: ![image](https://github.com/user-attachments/assets/41cce6c1-1a60-4914-9caf-5e33ffa38b06)
+3. Inventory Prediction : ![image](https://github.com/user-attachments/assets/65df6704-6786-441e-ad5f-577cdd92115b)
+4. Sales Predictor: ![image](https://github.com/user-attachments/assets/0cd91042-446f-4ea6-b7be-b3af62d90e80)
+
 
