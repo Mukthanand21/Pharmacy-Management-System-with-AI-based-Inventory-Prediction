@@ -32,13 +32,13 @@ const InventoryPredictor = () => {
           const alertKeyExpiry = `expiry-${item.medicine_id}`;
 
           if (item.status === "Restock Needed" && !alertsShown.current.has(alertKeyRestock)) {
-            toast.warn(`${item.medicine_name} needs restocking!`, { autoClose: 3000 });
+            {/*toast.warn(`${item.medicine_name} needs restocking!`, { autoClose: 3000 });
             alertsShown.current.add(alertKeyRestock);
           }
 
           if (item.expiry_alert && !alertsShown.current.has(alertKeyExpiry)) {
             toast.error(`${item.medicine_name} is expiring soon!`, { autoClose: 3000 });
-            alertsShown.current.add(alertKeyExpiry);
+            alertsShown.current.add(alertKeyExpiry);*/}
           }
         });
       });
