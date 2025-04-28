@@ -1,4 +1,9 @@
 Flask
 Flask-SQLAlchemy
+Flask-Migrate
 psycopg2-binary
+pandas
+scikit-learn
+Flask-WTF
 python-dotenv
+gunicorn
