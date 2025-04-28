@@ -125,7 +125,8 @@ const AIPredictor = () => {
           const days = (new Date(p.date) - today) / (1000 * 3600 * 24);
           if (days <= daysMap[interval]) {
             totalQty += p.predicted_quantity;
-            totalSales += p.predicted_sales_amount;
+            totalSales += parseFloat(p.predicted_sales_amount || 0);
+
           }
         });
 
@@ -143,7 +144,8 @@ const AIPredictor = () => {
         const days = (new Date(p.date) - today) / (1000 * 3600 * 24);
         if (days <= daysMap[interval]) {
           totalQty += p.predicted_quantity;
-          totalSales += p.predicted_sales_amount;
+          totalSales += parseFloat(p.predicted_sales_amount || 0);
+
         }
       });
 
@@ -181,7 +183,7 @@ const AIPredictor = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold text-green-700 mb-4">AI Inventory Predictor</h1>
+      <h1 className="text-2xl font-bold text-green-700 mb-4">AI Sales Predictor</h1>
 
       <div className="flex gap-4 mb-4">
         <select value={selectedMedicine} onChange={e => setSelectedMedicine(e.target.value)} className="border p-2 rounded">

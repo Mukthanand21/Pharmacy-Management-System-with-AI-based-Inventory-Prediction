@@ -86,7 +86,7 @@ class Inventory(db.Model):
     stock_in = db.Column(db.Integer, nullable=False, default=0)
     stock_out = db.Column(db.Integer, nullable=False, default=0)
     expired = db.Column(db.Integer, nullable=False, default=0)
-    #stock_available = db.Column(db.Integer, nullable=False, default=0)
+    stock_available = db.Column(db.Integer, nullable=False, default=0)
    # date_received = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
    # expiry_date = db.Column(db.DateTime, nullable=True)
 
@@ -150,7 +150,7 @@ class Receiving(db.Model):
     supplier_id = db.Column(db.Integer, nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     received_date = db.Column(db.DateTime, nullable=False)
-
+    
 
 # ✅ Customer Table
 class Customer(db.Model):
@@ -176,7 +176,9 @@ class Sale(db.Model):
     #     return self.quantity * self.price_per_unit
 class SaleItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    sale_id = db.Column(db.Integer, db.ForeignKey('sale.id'), nullable=False)
+   # sale_id = db.Column(db.Integer, db.ForeignKey('sale.id'), nullable=False)
+    sale_id = db.Column(db.Integer, db.ForeignKey('sale.id', ondelete='CASCADE'), nullable=False)  # Enable cascading delete
+
     medicine_id = db.Column(db.Integer, db.ForeignKey('medicine.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False)

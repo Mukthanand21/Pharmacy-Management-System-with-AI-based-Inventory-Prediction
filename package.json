@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "react-calendar": "^5.1.0",
+    "react-countup": "^6.5.3",
+    "react-spinners": "^0.17.0"
+  }
+}

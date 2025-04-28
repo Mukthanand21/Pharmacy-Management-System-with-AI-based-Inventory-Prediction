@@ -5,11 +5,16 @@ from models import db, Users, MedicineCategory,MedicineType,Medicine,Supplier,Ex
 from datetime import datetime,timedelta
 from datetime import date
 from sqlalchemy import func
+from sqlalchemy import func, cast, Date
+from sqlalchemy.orm import joinedload
 import pandas as pd
 from prophet import Prophet
 from sklearn.linear_model import LinearRegression
 import numpy as np
 from collections import defaultdict
+import logging
+from werkzeug.security import generate_password_hash, check_password_hash
+
 
 
 app = Flask(__name__)
@@ -145,6 +150,7 @@ def manage_medicines():
         description=data.get('description', ''),
         price=data['price'],
         stock=data.get('stock', 0)
+        
     )
     db.session.add(new_medicine)
     db.session.commit()
@@ -377,12 +383,16 @@ def manage_sales():
         result = []
         for sale in sales:
             customer = Customer.query.get(sale.customer_id)
+            items = SaleItem.query.filter_by(sale_id=sale.id).all()
+            medicine_names = [Medicine.query.get(item.medicine_id).name for item in items]
+
             result.append({
                 "id": sale.id,
                 "reference": sale.reference,
                 "date": sale.date_created.strftime('%Y-%m-%d %H:%M'),
                 "customer": customer.name if customer else "Unknown",
-                "total_amount": sale.total_amount
+                "total_amount": sale.total_amount,
+                "medicines": medicine_names  # Include medicine names
             })
         return jsonify(result)
 
@@ -431,6 +441,7 @@ def manage_sales():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
 @app.route('/sales/<int:id>', methods=['GET'])
 def get_sale(id):
     sale = Sale.query.get(id)
@@ -456,29 +467,66 @@ def get_sale(id):
         ]
     })
 
+# @app.route('/sales/<int:id>', methods=['DELETE'])
+# def delete_sale(id):
+#     sale = Sale.query.get(id)
+#     if not sale:
+#         return jsonify({"error": "Sale not found"}), 404
+
+#     items = SaleItem.query.filter_by(sale_id=sale.id).all()
+
+#     try:
+#         for item in items:
+#             medicine = Medicine.query.get(item.medicine_id)
+#             if medicine:
+#                 medicine.stock += item.quantity
+#             db.session.delete(item)
+
+#         db.session.delete(sale)
+#         db.session.commit()
+
+#         return jsonify({"message": "Sale deleted and stock restored"}), 200
+
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({"error": str(e)}), 500
 @app.route('/sales/<int:id>', methods=['DELETE'])
 def delete_sale(id):
     sale = Sale.query.get(id)
     if not sale:
-        return jsonify({"error": "Sale not found"}), 404
+        logging.error(f"Sale with id {id} not found")
+        return jsonify({"error": f"Sale with id {id} not found"}), 404
 
     items = SaleItem.query.filter_by(sale_id=sale.id).all()
+    if not items:
+        logging.warning(f"No sale items found for sale with id {id}")
+        return jsonify({"error": "No sale items found to delete"}), 400
 
     try:
+        logging.info(f"Deleting sale with id {id} and updating stock for medicines")
+
+        # Loop through sale items and update the medicine stock
         for item in items:
             medicine = Medicine.query.get(item.medicine_id)
-            if medicine:
-                medicine.stock += item.quantity
-            db.session.delete(item)
+            if not medicine:
+                logging.error(f"Medicine with id {item.medicine_id} not found")
+                continue  # Skip this item if medicine is not found
 
-        db.session.delete(sale)
+            logging.info(f"Restoring stock for medicine {medicine.name} (ID: {medicine.id})")
+            medicine.stock += item.quantity  # Restore stock
+            db.session.delete(item)  # Delete sale item
+
+        db.session.delete(sale)  # Delete sale record
         db.session.commit()
 
+        logging.info(f"Sale with id {id} successfully deleted and stock restored")
         return jsonify({"message": "Sale deleted and stock restored"}), 200
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        logging.error(f"Error deleting sale with id {id}: {str(e)}")
+        return jsonify({"error": f"Failed to delete sale: {str(e)}"}), 500
+
 
 @app.route('/medicines-with-sales', methods=['GET'])
 def get_medicines_with_sales():
@@ -619,136 +667,72 @@ def update_inventory_summary():
     return jsonify(result)
 
 # DASHBOARD API
-@app.route('/dashboard', methods=['GET'])
-def get_dashboard_data():
-    # Today's date
-    today = date.today()
+@app.route('/api/dashboard', methods=['GET'])
+def dashboard():
+    try:
+        today = datetime.today().date()
+        next_7_days = today + timedelta(days=7)
 
-    # Calculate total sales for today
-    sales_today = Sale.query.filter(Sale.sale_date == today).all()  # Use sale_date here
-    total_sales_today = sum([sale.total() for sale in sales_today])
+        # Total medicines count
+        total_medicines = Medicine.query.count()
 
-    # Calculate total sales (all time)
-    total_sales = Sale.query.with_entities(db.func.sum(Sale.quantity * Sale.price_per_unit)).scalar()
+        # Total sales today
+        sales_today = Sale.query.filter(Sale.date_created >= datetime.combine(today, datetime.min.time())).all()
+        total_sales = len(sales_today)
 
-    # Calculate expiring medicines today (this assumes you have the correct model for ExpiringProduct)
-    expiring_today = ExpiryList.query.filter(ExpiryList.expiration_date == today).count()
+        # Revenue today
+        total_revenue_today = sum(sale.total_amount for sale in sales_today)
 
-    dashboard_data = {
-        "totalSalesToday": total_sales_today,
-        "totalSales": total_sales,
-        "expiringMedicinesToday": expiring_today
-    }
+        # Expiring soon (within 15 days)
+        soon_expiring = ExpiryList.query.filter(
+            ExpiryList.date_expired <= today + timedelta(days=15)
+        ).count()
 
-    return jsonify(dashboard_data)
+        # Low stock (threshold: <= 10)
+        low_stock_count = Inventory.query.filter(Inventory.stock_available <= 10).count()
 
-# @app.route('/predict-inventory', methods=['GET'])
-# def get_inventory_predictions():
-#     # Load forecast CSV
-#     df = pd.read_csv('all_medicine_forecasts.csv')
+        # Top 3 AI Forecast medicines in next 7 days
+        top_forecast = (
+            db.session.query(
+                Forecast.medicine_id,
+                Medicine.name.label("medicine_name"),
+                func.sum(Forecast.predicted_quantity).label("total_quantity"),
+                func.sum(Forecast.predicted_sales_amount).label("total_sales")
+            )
+            .join(Medicine, Medicine.id == Forecast.medicine_id)
+            .filter(cast(Forecast.date, Date) <= next_7_days)
+            .group_by(Forecast.medicine_id, Medicine.name)
+            .order_by(func.sum(Forecast.predicted_sales_amount).desc())
+            .limit(3)
+            .all()
+        )
 
-#     # Clean and preprocess
-#     df['medicine_id'] = df['medicine_id'].astype(int)
-#     df['date'] = pd.to_datetime(df['date'], dayfirst=True)
-    
-#     # Optional: Add this if 'category' column exists in your CSV
-#     if 'category' not in df.columns:
-#         df['category'] = 'General'  # Default category if missing
+        forecast_data = []
+        for f in top_forecast:
+            forecast_data.append({
+                "medicine_id": f.medicine_id,
+                "medicine_name": f.medicine_name,
+                "predicted_quantity": f.total_quantity,
+                "predicted_sales_amount": f.total_sales
+            })
 
-#     # Query Params
-#     category_filter = request.args.get('category')
-#     start_date = request.args.get('start_date')
-#     end_date = request.args.get('end_date')
+        return jsonify({
+            "total_medicines": total_medicines,
+            "sales_today": total_sales,
+            "revenue_today": round(total_revenue_today, 2),
+            "expiring_soon": soon_expiring,
+            "low_stock": low_stock_count,
+            "forecast": forecast_data
+        })
 
-#     # Apply filters
-#     if category_filter:
-#         df = df[df['category'].str.lower() == category_filter.lower()]
-
-#     if start_date:
-#         df = df[df['date'] >= pd.to_datetime(start_date)]
-
-#     if end_date:
-#         df = df[df['date'] <= pd.to_datetime(end_date)]
-
-#     df = df.sort_values(['medicine_id', 'date'])
-
-#     response = {}
-#     for med_id in df['medicine_id'].unique():
-#         data = df[df['medicine_id'] == med_id].tail(7)
-
-#         response[str(med_id)] = {
-#             "medicine_name": f"Medicine {med_id}",  # Replace with actual name if available
-#             "predictions": [
-#                 {
-#                     "date": row['date'].strftime('%Y-%m-%d'),
-#                     "predicted_sales": round(row['predicted_sales'], 2)
-#                 }
-#                 for _, row in data.iterrows()
-#             ]
-#         }
-
-#     return jsonify(response)
-
-
-# @app.route('/predict-inventory', methods=['GET'])
-# def predict_inventory():
-#     # Fetch data
-#     sales = db.session.query(
-#         SaleItem.medicine_id,
-#         func.date(Sale.date_created).label('sale_date'),
-#         func.sum(SaleItem.quantity).label('total_quantity')
-#     ).join(Sale).group_by(
-#         SaleItem.medicine_id,
-#         func.date(Sale.date_created)
-#     ).order_by(
-#         SaleItem.medicine_id,
-#         func.date(Sale.date_created)
-#     ).all()
-
-#     df = pd.DataFrame(sales, columns=['medicine_id', 'date', 'quantity'])
-#     df['date'] = pd.to_datetime(df['date'])
-#     df = df.sort_values(['medicine_id', 'date'])
-
-#     response = {}
-
-#     for med_id in df['medicine_id'].unique():
-#         med_data = df[df['medicine_id'] == med_id]
-
-#         # Convert dates to ordinal numbers for regression
-#         med_data['ordinal'] = med_data['date'].map(lambda x: x.toordinal())
-#         X = med_data['ordinal'].values.reshape(-1, 1)
-#         y = med_data['quantity'].values
-
-#         if len(X) < 2:
-#             continue  # Not enough data to forecast
-
-#         # Fit simple linear regression
-#         model = LinearRegression()
-#         model.fit(X, y)
-
-#         # Predict next 7 days
-#         last_date = med_data['date'].max()
-#         future_dates = [last_date + timedelta(days=i) for i in range(1, 8)]
-#         future_ordinals = np.array([d.toordinal() for d in future_dates]).reshape(-1, 1)
-#         predicted_sales = model.predict(future_ordinals)
-
-#         response[str(med_id)] = {
-#             "medicine_name": f"Medicine {med_id}",
-#             "predictions": [
-#                 {
-#                     "date": d.strftime('%Y-%m-%d'),
-#                     "predicted_sales": round(p, 2)
-#                 }
-#                 for d, p in zip(future_dates, predicted_sales)
-#             ]
-#         }
-
-   # return jsonify(response)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/ai-predictor", methods=["GET"])
 def predict_sales():
     medicine_id = request.args.get("medicine_id")
     interval = request.args.get("interval", "7d")
+    conversion_rate = int(request.args.get("conversion_rate", 15))  # Default 15%
 
     if not medicine_id:
         return jsonify({"error": "medicine_id query parameter is required"}), 400
@@ -765,61 +749,80 @@ def predict_sales():
         return jsonify({"error": "Invalid interval"}), 400
 
     days = days_map[interval]
-    future_dates = [datetime.utcnow() + timedelta(days=i) for i in range(days)]
+    future_dates = [datetime.utcnow().date() + timedelta(days=i) for i in range(days)]
 
     results = {}
     total_revenue = 0
     total_quantity = 0
 
     if medicine_id == "all":
-        medicines = db.session.query(Medicine.id, Medicine.name).all()
+        medicines = db.session.query(Medicine.id, Medicine.name, Medicine.price).all()
     else:
         med = Medicine.query.get(medicine_id)
         if not med:
             return jsonify({"error": f"Medicine with ID {medicine_id} not found"}), 404
-        medicines = [(int(medicine_id), med.name)]
+        medicines = [(med.id, med.name, med.price)]
 
-    for mid, mname in medicines:
-        data = []
-        for d in future_dates:
-            date_str = d.strftime("%Y-%m-%d")
+    for mid, mname, price in medicines:
+        sales_data = (
+            db.session.query(
+                func.date(Sale.date_created),
+                func.sum(SaleItem.quantity)
+            )
+            .join(Sale, SaleItem.sale_id == Sale.id)
+            .filter(SaleItem.medicine_id == mid)
+            .group_by(func.date(Sale.date_created))
+            .order_by(func.date(Sale.date_created))
+            .all()
+        )
 
-            # Check if prediction already exists
-            existing = Forecast.query.filter_by(
-                medicine_id=mid,
-                date=date_str,
-                interval=interval
-            ).first()
+        if not sales_data or len(sales_data) < 2:
+            results[str(mid)] = {
+                "medicine_name": mname,
+                "predictions": []
+            }
+            continue
 
-            if existing:
-                quantity = existing.predicted_quantity
-                sales = existing.predicted_sales_amount
-            else:
-                quantity = np.random.randint(1, 5)
-                price = 15.0  # Dummy value
-                sales = quantity * price
+        dates, quantities = zip(*sales_data)
+        date_nums = np.array([(d - dates[0]).days for d in dates]).reshape(-1, 1)
+        quantities = np.array(quantities)
 
+        model = LinearRegression()
+        model.fit(date_nums, quantities)
+
+        last_day = (datetime.utcnow().date() - dates[0]).days
+        prediction = []
+        for i in range(1, days + 1):
+            future_day = last_day + i
+            predicted_qty = max(0, int(model.predict(np.array([[future_day]]))[0]))
+            adjusted_qty = int(predicted_qty * (conversion_rate / 100))
+            adjusted_sales = adjusted_qty * price
+
+            date_str = (dates[0] + timedelta(days=future_day)).strftime("%Y-%m-%d")
+
+            existing = Forecast.query.filter_by(medicine_id=mid, date=date_str, interval=interval).first()
+            if not existing:
                 forecast = Forecast(
                     medicine_id=mid,
                     date=date_str,
-                    predicted_quantity=quantity,
-                    predicted_sales_amount=sales,
+                    predicted_quantity=adjusted_qty,
+                    predicted_sales_amount=adjusted_sales,
                     interval=interval
                 )
                 db.session.add(forecast)
 
-            data.append({
+            prediction.append({
                 "date": date_str,
-                "predicted_quantity": quantity,
-                "predicted_sales_amount": sales
+                "predicted_quantity": adjusted_qty,
+                "predicted_sales_amount": f"{adjusted_sales:.2f}"
             })
 
-            total_quantity += quantity
-            total_revenue += sales
+            total_quantity += adjusted_qty
+            total_revenue += adjusted_sales
 
         results[str(mid)] = {
             "medicine_name": mname,
-            "predictions": data
+            "predictions": prediction
         }
 
     db.session.commit()
@@ -827,75 +830,76 @@ def predict_sales():
     return jsonify({
         "predictions": results,
         "summary": {
-            "total_revenue": total_revenue,
+            "total_revenue": f"{total_revenue:.2f}",
             "total_quantity": total_quantity,
-            "conversion_rate": 26,
-            "conversion_increase": 8
+            "conversion_rate": conversion_rate,
+            "conversion_increase": 5  # Placeholder
         }
     })
+
 # Load the forecast data (assumes a preprocessed CSV with names)
-forecast_df = pd.read_csv("all_medicine_forecasts.csv")
+#forecast_df = pd.read_csv("all_medicine_forecasts.csv")
 
-@app.route('/api/forecast', methods=['GET'])
-def get_forecasts():
-    category = request.args.get('category')
-    name = request.args.get('name')
-    start_date = request.args.get('start')
-    end_date = request.args.get('end')
+# @app.route('/api/forecast', methods=['GET'])
+# def get_forecasts():
+#     category = request.args.get('category')
+#     name = request.args.get('name')
+#     start_date = request.args.get('start')
+#     end_date = request.args.get('end')
 
-    medicines = Medicine.query.all()
-    forecasts = []
+#     medicines = Medicine.query.all()
+#     forecasts = []
 
-    for med in medicines:
-        if name and name.lower() not in med.name.lower():
-            continue
-        if category and (not med.category or category.lower() != med.category.name.lower()):
-            continue
+#     for med in medicines:
+#         if name and name.lower() not in med.name.lower():
+#             continue
+#         if category and (not med.category or category.lower() != med.category.name.lower()):
+#             continue
 
-        sales = Sale.query.filter_by(medicine_id=med.id).all()
-        df = pd.DataFrame([{'ds': s.date, 'y': s.quantity} for s in sales])
+#         sales = Sale.query.filter_by(medicine_id=med.id).all()
+#         df = pd.DataFrame([{'ds': s.date, 'y': s.quantity} for s in sales])
 
-        if df.empty or len(df) < 2:
-            continue  # Skip poor data
+#         if df.empty or len(df) < 2:
+#             continue  # Skip poor data
 
-        model = Prophet()
-        model.fit(df)
+#         model = Prophet()
+#         model.fit(df)
 
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
+#         future = model.make_future_dataframe(periods=30)
+#         forecast = model.predict(future)
 
-        filtered_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
-        filtered_forecast['medicine_id'] = med.id
-        filtered_forecast['medicine_name'] = med.name
-        filtered_forecast['category'] = med.category
+#         filtered_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]
+#         filtered_forecast['medicine_id'] = med.id
+#         filtered_forecast['medicine_name'] = med.name
+#         filtered_forecast['category'] = med.category
 
-        if start_date:
-            filtered_forecast = filtered_forecast[filtered_forecast['ds'] >= start_date]
-        if end_date:
-            filtered_forecast = filtered_forecast[filtered_forecast['ds'] <= end_date]
+#         if start_date:
+#             filtered_forecast = filtered_forecast[filtered_forecast['ds'] >= start_date]
+#         if end_date:
+#             filtered_forecast = filtered_forecast[filtered_forecast['ds'] <= end_date]
 
-        forecasts.append(filtered_forecast)
+#         forecasts.append(filtered_forecast)
 
-    all_forecasts = pd.concat(forecasts).reset_index(drop=True)
-    return jsonify(all_forecasts.to_dict(orient='records'))
+#     all_forecasts = pd.concat(forecasts).reset_index(drop=True)
+#     return jsonify(all_forecasts.to_dict(orient='records'))
 
 # Stock alerts
-@app.route('/api/alerts', methods=['GET'])
-def get_stock_alerts():
-    threshold = int(request.args.get('threshold', 10))
-    medicines = Medicine.query.all()
+# @app.route('/api/alerts', methods=['GET'])
+# def get_stock_alerts():
+#     threshold = int(request.args.get('threshold', 10))
+#     medicines = Medicine.query.all()
 
-    low_stock = []
-    for med in medicines:
-        if med.stock_available < threshold:
-            low_stock.append({
-                "id": med.id,
-                "name": med.name,
-                "stock": med.stock_available,
-                "category": med.category,
-            })
+#     low_stock = []
+#     for med in medicines:
+#         if med.stock_available < threshold:
+#             low_stock.append({
+#                 "id": med.id,
+#                 "name": med.name,
+#                 "stock": med.stock_available,
+#                 "category": med.category,
+#             })
 
-    return jsonify(low_stock)
+#     return jsonify(low_stock)
 
 
 @app.route("/ai-inventory-predictor", methods=["GET"])
@@ -934,13 +938,16 @@ def inventory_predictor():
             X.append([i])
             y.append(row.predicted_quantity)
 
+        # Predict demand
         predicted_demand = 0
         if len(X) > 2:
             model = LinearRegression().fit(X, y)
             future_days = np.array([[len(X) + i] for i in range(days_to_predict)])
-            predicted_demand = int(model.predict(future_days).sum())
+            predicted_sum = model.predict(future_days).sum()
+            predicted_demand = max(int(predicted_sum), 0)  # Clamp to 0
         elif y:
-            predicted_demand = int(sum(y) / len(y) * days_to_predict)
+            predicted_avg = sum(y) / len(y) * days_to_predict
+            predicted_demand = max(int(predicted_avg), 0)  # Clamp to 0
 
         # Get current stock
         inventory = Inventory.query.filter_by(medicine_id=med.id).first()
@@ -987,11 +994,311 @@ def inventory_predictor():
         })
 
     return jsonify({"inventory_predictions": inventory_predictions})
+@app.route('/api/dashboard/sales-trend')
+def sales_trend():
+    today = datetime.today()
+    start_date = today - timedelta(days=30)
+
+    sales_data = db.session.query(
+        func.date(Sale.date_created).label('sale_date'),
+        func.sum(Sale.total_amount).label('total_amount')
+    ).filter(
+        Sale.date_created >= start_date
+    ).group_by(
+        func.date(Sale.date_created)
+    ).order_by(
+        func.date(Sale.date_created)
+    ).all()
+
+    return jsonify([
+        {'date': str(row.sale_date), 'amount': float(row.total_amount)}
+        for row in sales_data
+    ])
 
 
+@app.route('/api/dashboard/inventory-forecast')
+def inventory_forecast():
+    future_date = datetime.today().date() + timedelta(days=7)
+
+    forecast_data = db.session.query(
+        Forecast.medicine_id,
+        Medicine.name,
+        func.sum(Forecast.predicted_quantity).label("quantity")
+    ).join(Medicine).filter(
+        cast(Forecast.date, Date) <= future_date
+    ).group_by(
+        Forecast.medicine_id, Medicine.name
+    ).all()
+
+    return jsonify([
+        {"medicine": row.name, "quantity": row.quantity}
+        for row in forecast_data
+    ])
+
+@app.route('/api/dashboard/category-wise-count')
+def get_category_counts():
+    results = (
+        db.session.query(MedicineCategory.name, func.count(Medicine.id))
+        .join(Medicine)
+        .group_by(MedicineCategory.name)
+        .all()
+    )
+    data = [{"category": name, "count": count} for name, count in results]
+    return jsonify(data)
 
 
+@app.route("/api/dashboard/top-selling")
+def top_selling_medicines():
+    result = (
+        db.session.query(
+            Medicine.name,
+            db.func.sum(SaleItem.quantity).label("total_sold")
+        )
+        .join(Medicine, Medicine.id == SaleItem.medicine_id)
+        .group_by(Medicine.name)
+        .order_by(db.desc("total_sold"))
+        .limit(5)
+        .all()
+    )
+    return jsonify([{"medicine": r[0], "quantity": int(r[1])} for r in result])
 
+
+@app.route('/api/dashboard/expiry-alerts')
+def expiry_alerts():
+    today = datetime.today()
+    upcoming = today + timedelta(days=15)
+
+    expiring_meds = (
+        db.session.query(ExpiryList, Medicine)
+        .join(Medicine, ExpiryList.medicine_id == Medicine.id)
+        .filter(ExpiryList.date_expired <= upcoming)
+        .all()
+    )
+
+    result = []
+    for expiry, medicine in expiring_meds:
+        days_left = (expiry.date_expired - today).days
+        result.append({
+            'medicine_name': medicine.name,
+            'expiry_date': expiry.date_expired.strftime('%Y-%m-%d'),
+            'days_left': days_left
+        })
+
+
+    return jsonify(result)
+
+
+@app.route('/api/dashboard/low-stock-warnings')
+def low_stock_warnings():
+    threshold = 10
+    forecast_duration = 7
+    today = datetime.utcnow().date()
+    upcoming_date = today + timedelta(days=forecast_duration)
+
+    # Subquery for forecasted demand
+    subquery = (
+        db.session.query(
+            Forecast.medicine_id,
+            db.func.sum(Forecast.predicted_quantity).label('forecasted_demand')
+        )
+        .filter(
+            cast(Forecast.date, Date) >= today,
+            cast(Forecast.date, Date) <= upcoming_date
+        )
+        .group_by(Forecast.medicine_id)
+        .subquery()
+    )
+
+    # Join with Inventory to calculate current stock
+    results = (
+        db.session.query(
+            Medicine.name,
+            (Inventory.stock_in - Inventory.stock_out - Inventory.expired).label('stock'),
+            subquery.c.forecasted_demand
+        )
+        .join(Inventory, Inventory.medicine_id == Medicine.id)
+        .join(subquery, Medicine.id == subquery.c.medicine_id)
+        .filter((Inventory.stock_in - Inventory.stock_out - Inventory.expired) < threshold)
+        .all()
+    )
+
+    warnings = []
+    for name, stock, forecasted in results:
+        warnings.append({
+            "medicine_name": name,
+            "stock": stock,
+            "forecasted_demand": forecasted,
+            "is_critical": stock < forecasted
+        })
+
+    return jsonify(warnings)
+
+
+# 📦 RECEIVING CALENDAR
+@app.route("/api/dashboard/recent-receivings")
+def recent_receivings():
+    results = (
+        db.session.query(
+            Receiving.id,
+            Receiving.received_date,
+            Receiving.quantity,
+            Medicine.name.label("medicine_name"),
+            Supplier.name.label("supplier_name"),
+        )
+        .join(Medicine, Medicine.id == Receiving.medicine_id)
+        .join(Supplier, Supplier.id == Receiving.supplier_id)
+        .order_by(Receiving.received_date.desc())
+        .limit(10)
+        .all()
+    )
+
+    receivings = [
+        {
+            "id": r.id,
+            "date": r.received_date.strftime("%Y-%m-%d"),
+            "quantity": r.quantity,
+            "medicine": r.medicine_name,
+            "supplier": r.supplier_name,
+        }
+        for r in results
+    ]
+
+    return jsonify(receivings)
+
+# 🛒 SALES CALENDAR
+@app.route('/api/dashboard/calendar-sales')
+def calendar_sales():
+    recent = Sale.query.filter(
+        Sale.date_created >= datetime.now() - timedelta(days=30)
+    ).order_by(Sale.date_created.desc()).all()
+
+    data = []
+    for s in recent:
+        customer_name = "Walk-in"
+        if s.customer_id:
+            customer = Customer.query.get(s.customer_id)
+            customer_name = customer.name if customer else 'Walk-in'
+
+        data.append({
+            'date': s.date_created.strftime('%Y-%m-%d'),
+            'customer': customer_name,
+            'total': s.total_amount
+        })
+
+    return jsonify(data)
+
+@app.route('/api/dashboard/notifications')
+def dashboard_notifications():
+    today = datetime.utcnow()
+    fifteen_days_later = today + timedelta(days=15)
+
+    expiring_soon_count = ExpiryList.query.filter(
+        ExpiryList.date_expired <= fifteen_days_later
+    ).count()
+
+    forecasted_out = Forecast.query.filter(Forecast.predicted_quantity < 5).count()
+
+    today_received = Receiving.query.filter(
+        func.date(Receiving.received_date) == today.date()
+    ).count()
+
+    return jsonify({
+        "expiring_soon": expiring_soon_count,
+        "forecasted_out": forecasted_out,
+        "received_today": today_received
+    })
+
+# # 🔐 SIGNUP ROUTE
+# @app.route("/api/signup", methods=["POST"])
+# def signup():
+#     data = request.get_json()
+#     name = data.get("name")
+#     email = data.get("email")
+#     password = data.get("password")
+
+#     if Users.query.filter_by(email=email).first():
+#         return jsonify({"error": "Email already registered"}), 400
+
+#     new_user = Users(name=name, email=email, password=password)
+#     db.session.add(new_user)
+#     db.session.commit()
+
+#     return jsonify({"message": "User created successfully"}), 201
+
+
+# # 🔐 LOGIN ROUTE
+# @app.route("/api/login", methods=["POST"])
+# def login():
+#     data = request.get_json()
+#     email = data.get("email")
+#     password = data.get("password")
+
+#     user = Users.query.filter_by(email=email).first()
+
+#     if user and user.password == password:
+#         return jsonify({
+#             "message": "Login successful",
+#             "user": {
+#                 "id": user.id,
+#                 "name": user.name,
+#                 "email": user.email
+#             }
+#         })
+#     else:
+#         return jsonify({"error": "Invalid email or password"}), 401
+
+# 🔐 SIGNUP ROUTE
+@app.route("/api/signup", methods=["POST"])
+def signup():
+    data = request.get_json()
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"error": "All fields are required"}), 400
+
+    if Users.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already registered"}), 400
+
+    hashed_password = generate_password_hash(password)
+
+    new_user = Users(name=name, email=email, password=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({
+        "message": "User created successfully",
+        "user": {
+            "id": new_user.id,
+            "name": new_user.name,
+            "email": new_user.email
+        }
+    }), 201
+
+# 🔐 LOGIN ROUTE
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+
+    user = Users.query.filter_by(email=email).first()
+
+    if user and check_password_hash(user.password, password):
+        return jsonify({
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "email": user.email
+            }
+        })
+    else:
+        return jsonify({"error": "Invalid email or password"}), 401
 
 if __name__ == '__main__':
     app.run(debug=True)
